@@ -23,6 +23,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/prometheus/blackbox_exporter/config"
@@ -104,6 +105,15 @@ func Handler(w http.ResponseWriter, r *http.Request, c *config.Config, logger *s
 		}
 	}
 
+	customHeader := params.Get("customHeader")
+	if module.Prober == "http" && customHeader != "" {
+		err = setCustomHeader(customHeader, &module)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	if module.Prober == "tcp" && hostname != "" {
 		if module.TCP.TLSConfig.ServerName == "" {
 			module.TCP.TLSConfig.ServerName = hostname
@@ -163,6 +173,42 @@ func setHTTPHost(hostname string, module *config.Module) error {
 	headers["Host"] = hostname
 	module.HTTP.Headers = headers
 	return nil
+}
+
+func setCustomHeader(customHeaders string, module *config.Module) error {
+	customHeaderMap := parseToMap(customHeaders)
+	if len(customHeaderMap) == 0 {
+		return nil
+	}
+	// By creating a new hashmap and copying values there we
+	// ensure that the initial configuration remain intact.
+	headers := make(map[string]string)
+	if module.HTTP.Headers != nil {
+		for name, value := range module.HTTP.Headers {
+			headers[name] = value
+		}
+	}
+	for k, v := range customHeaderMap {
+		headers[k] = v
+	}
+	module.HTTP.Headers = headers
+	return nil
+}
+
+func parseToMap(input string) map[string]string {
+	result := make(map[string]string)
+	pairs := strings.Split(input, ",")
+
+	for _, pair := range pairs {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			key := strings.TrimSpace(kv[0])
+			value := strings.TrimSpace(kv[1])
+			result[key] = value
+		}
+	}
+
+	return result
 }
 
 type scrapeLogger struct {
